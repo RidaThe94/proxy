@@ -5,7 +5,6 @@ import com.hypixel.hytale.protocol.packets.auth.ClientReferral;
 import me.internalizable.numdrassl.api.player.TransferResult;
 import me.internalizable.numdrassl.config.BackendServer;
 import me.internalizable.numdrassl.server.ProxyCore;
-import me.internalizable.numdrassl.server.health.BackendHealth;
 import me.internalizable.numdrassl.session.ProxySession;
 import me.internalizable.numdrassl.session.SessionState;
 import org.slf4j.Logger;

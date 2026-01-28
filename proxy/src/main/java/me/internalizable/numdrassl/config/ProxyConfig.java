@@ -301,6 +301,7 @@ public class ProxyConfig {
 
         if (metricsLogIntervalSeconds == null) {
             metricsLogIntervalSeconds = 60;
+            changed = true;
         }
 
         if (fallbackEnabled == null) {
