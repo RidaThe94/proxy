@@ -49,7 +49,7 @@ public class AuthCommand implements Command {
             source.sendMessage(ChatMessageBuilder.create()
                     .red("[X] ")
                     .gray("This command can only be used from the console."));
-            return CommandResult.failure("This command can only be used from the console");
+            return CommandResult.failure();
         }
 
         if (args.length < 1) {
@@ -75,7 +75,7 @@ public class AuthCommand implements Command {
         ProxyAuthenticator authenticator = proxyCore.getAuthenticator();
         if (authenticator == null) {
             source.sendMessage("Authenticator not available");
-            return CommandResult.failure("Authenticator not available");
+            return CommandResult.failure();
         }
 
         if (authenticator.isAuthenticated()) {
