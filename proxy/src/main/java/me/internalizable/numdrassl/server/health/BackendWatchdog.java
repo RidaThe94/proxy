@@ -9,6 +9,7 @@ import me.internalizable.numdrassl.session.SessionState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nonnull;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -17,7 +18,7 @@ public class BackendWatchdog {
     private static final Logger LOGGER = LoggerFactory.getLogger(BackendWatchdog.class);
 
     private final ProxyCore proxyCore;
-
+    
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "backend-watchdog");
         t.setDaemon(true);
@@ -74,7 +75,7 @@ public class BackendWatchdog {
         return result;
     }
 
-    private void handleBackendHealth(long now, String backendName, BackendHealth health) {
+    private void handleBackendHealth(long now, String backendName, @Nonnull BackendHealth health) {
         if (proxyCore.getBackendHealthManager() == null) return;
 
         BackendServer backend = proxyCore.getConfig().getBackendByName(backendName);
@@ -107,19 +108,13 @@ public class BackendWatchdog {
 
         if (health.getState() == BackendHealth.BackendState.HEALTHY && health.isDead(now, passiveTimeoutMs, pingGraceMs)) {
             health.markDead();
-            handleBackendDownAsync(backend);
+            handleBackendDownAsync(backend, sessions);
         }
     }
 
-    private void handleBackendDownAsync(BackendServer backend) {
+    private void handleBackendDownAsync(BackendServer backend, List<ProxySession> sessions) {
         LOGGER.warn("[Watchdog] backend {} is DEAD", backend.getName());
         CompletableFuture.runAsync(() -> {
-            List<ProxySession> sessions = this.getSessionsForBackend(backend);
-
-            if (sessions.isEmpty()) {
-                LOGGER.debug("[Watchdog] backend={} has no sessions to transfer", backend.getName());
-                return;
-            }
 
             LOGGER.warn("[Watchdog] backend={} DOWN -> transferring {} session(s)", backend.getName(), sessions.size());
 
@@ -143,7 +138,7 @@ public class BackendWatchdog {
 
                 proxyCore.getBackendConnector().handleBackendDisconnect(session, backend);
             }
-        });
+        }, scheduler);
     }
 
 
