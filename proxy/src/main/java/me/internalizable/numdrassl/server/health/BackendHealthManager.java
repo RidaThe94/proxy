@@ -110,9 +110,7 @@ public class BackendHealthManager {
                             protected void channelRead0(ChannelHandlerContext ctx, Packet packet) {
                                 if (packet instanceof ProxyPong) {
                                     completeOnce(result, true, () -> {
-                                        if (proxyCore.getBackendHealthManager() != null) {
-                                            proxyCore.getBackendHealthManager().get(backend).markPingResponse();
-                                        }
+                                        get(backend).markPingResponse();
 
                                         ctx.channel().parent().close();
                                         cleanup.run();
