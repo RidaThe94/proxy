@@ -19,6 +19,8 @@ import java.util.List;
  */
 public class AuthCommand implements Command {
 
+    private static final String PERMISSION_BASE = "numdrassl.command.auth";
+
     private static final Logger LOGGER = LoggerFactory.getLogger(AuthCommand.class);
     private final ProxyCore proxyCore;
 
@@ -40,6 +42,11 @@ public class AuthCommand implements Command {
     @Override
     public String getUsage() {
         return "auth <login|status|secret>";
+    }
+
+    @Override
+    public String getPermission() {
+        return PERMISSION_BASE;
     }
 
     @Override
