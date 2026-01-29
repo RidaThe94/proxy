@@ -49,7 +49,7 @@ public final class BackendPacketHandler extends SimpleChannelInboundHandler<Obje
 
         if (!(msg instanceof Packet packet)) {
             LOGGER.warn("Session {}: Unknown message type from backend: {}",
-                session.getSessionId(), msg.getClass().getName());
+                    session.getSessionId(), msg.getClass().getName());
             return;
         }
 
@@ -156,8 +156,9 @@ public final class BackendPacketHandler extends SimpleChannelInboundHandler<Obje
     private boolean shouldDisconnectClient() {
         SessionState state = session.getState();
         return state != SessionState.DISCONNECTED
-            && state != SessionState.TRANSFERRING
-            && !session.isServerTransfer();
+                && state != SessionState.TRANSFERRING
+                && !session.isServerTransfer()
+                && !proxyCore.getConfig().isFallbackEnabled();
     }
 
     @Override
