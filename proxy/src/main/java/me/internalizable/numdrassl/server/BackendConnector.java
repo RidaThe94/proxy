@@ -402,8 +402,13 @@ public final class BackendConnector {
 
         session.setState(SessionState.TRANSFERRING);
 
-        BackendServer fallbackServer = proxyCore.getConfig().getBackendByName(proxyCore.getConfig().getGlobalFallbackServer());
         String disconnectReason = "Backend server disconnected";
+
+        BackendServer fallbackServer = proxyCore.getConfig().getBackendByName(proxyCore.getConfig().getGlobalFallbackServer());
+        if (fallbackServer == null) {
+            session.disconnect(disconnectReason);
+            return;
+        }
 
         if (backend.getFallbackServer() == null || backend.getFallbackServer().isBlank()) {
             if (backend.getName().equals(fallbackServer.getName())) {
@@ -413,6 +418,10 @@ public final class BackendConnector {
             }
         } else {
             fallbackServer = proxyCore.getConfig().getBackendByName(backend.getFallbackServer());
+            if (fallbackServer == null) {
+                session.disconnect(disconnectReason);
+                return;
+            }
         }
 
         LOGGER.debug("Transfering for {} from backend {} to {}", session.getSessionId(), backend.getName(), fallbackServer.getName());
@@ -420,14 +429,14 @@ public final class BackendConnector {
         ServerDisconnectedResult eventResult = fireServerDisconnectedEvent(session, disconnectReason);
         if (eventResult != null && eventResult.getFallbackServer() != null) {
             fallbackServer = proxyCore.getConfig().getBackendByName(eventResult.getFallbackServer().getName());
+            if (fallbackServer == null) {
+                session.disconnect(disconnectReason);
+                return;
+            }
             if (eventResult.getDisconnectReason() != null) {
                 disconnectReason = eventResult.getDisconnectReason();
+                session.disconnect(disconnectReason);
             }
-            return;
-        }
-
-        if (fallbackServer == null) {
-            session.disconnect(disconnectReason);
             return;
         }
 
