@@ -37,6 +37,10 @@ public final class BackendPacketHandler extends SimpleChannelInboundHandler<Obje
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, Object msg) throws Exception {
+        if (session.getCurrentBackend() != null && proxyCore.getBackendHealthManager() != null) {
+            proxyCore.getBackendHealthManager().get(session.getCurrentBackend()).markPassiveResponse();
+        }
+
         if (msg instanceof ByteBuf raw) {
             ProxyMetrics.getInstance().recordPacketFromBackend("RawPacket", raw.readableBytes());
             handleRawPacket(ctx, raw);
@@ -45,7 +49,7 @@ public final class BackendPacketHandler extends SimpleChannelInboundHandler<Obje
 
         if (!(msg instanceof Packet packet)) {
             LOGGER.warn("Session {}: Unknown message type from backend: {}",
-                session.getSessionId(), msg.getClass().getName());
+                    session.getSessionId(), msg.getClass().getName());
             return;
         }
 
@@ -117,6 +121,11 @@ public final class BackendPacketHandler extends SimpleChannelInboundHandler<Obje
             return;
         }
 
+        if (proxyCore.getConfig().isFallbackEnabled()) {
+            proxyCore.getBackendConnector().handleBackendDisconnect(session, session.getCurrentBackend());
+            return;
+        }
+
         forwardToClient(disconnect);
         session.disconnect("Backend disconnected: " + disconnect.reason);
     }
@@ -147,8 +156,9 @@ public final class BackendPacketHandler extends SimpleChannelInboundHandler<Obje
     private boolean shouldDisconnectClient() {
         SessionState state = session.getState();
         return state != SessionState.DISCONNECTED
-            && state != SessionState.TRANSFERRING
-            && !session.isServerTransfer();
+                && state != SessionState.TRANSFERRING
+                && !session.isServerTransfer()
+                && !proxyCore.getConfig().isFallbackEnabled();
     }
 
     @Override
