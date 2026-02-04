@@ -112,7 +112,17 @@ public final class ProxyMetrics {
 
     private final ConcurrentHashMap<String, Counter> backendConnectionCounters = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> backendActiveConnections = new ConcurrentHashMap<>();
+    
+    // ==================== Raw packet tracking (lightweight, no histograms) ====================
 
+    private final LongAdder rawPacketsFromBackend = new LongAdder();
+    private final LongAdder rawPacketsFromClient = new LongAdder();
+    private final LongAdder rawPacketsToClient = new LongAdder();
+    private final LongAdder rawPacketsToBackend = new LongAdder();
+    private final LongAdder rawBytesFromBackend = new LongAdder();
+    private final LongAdder rawBytesFromClient = new LongAdder();
+    private final LongAdder rawBytesToClient = new LongAdder();
+    private final LongAdder rawBytesToBackend = new LongAdder();
     // ==================== Rate tracking (for throughput) ====================
 
     private final LongAdder packetsPerSecondClient = new LongAdder();
@@ -517,6 +527,94 @@ public final class ProxyMetrics {
                 .register(registry)
         );
     }
+    // ==================== Raw Packet Metrics (Lightweight) ====================
+
+    /**
+     * Records a raw (unregistered) packet received from a backend server.
+     *
+     * <p>Uses lightweight LongAdder counters instead of the full metrics pipeline
+     * (DistributionSummary, per-type ConcurrentHashMap lookups) to minimize overhead
+     * during high-throughput scenarios like chunk loading.</p>
+     *
+     * <p>General counters (packetsFromBackend, bytesFromBackend) are still incremented
+     * to preserve compatibility with existing dashboards.</p>
+     *
+     * @param bytes size in bytes
+     */
+    public void recordRawBytesFromBackend(long bytes) {
+        packetsFromBackend.increment();
+        bytesFromBackend.increment(bytes);
+        rawPacketsFromBackend.increment();
+        rawBytesFromBackend.add(bytes);
+    }
+
+    /**
+     * Records a raw (unregistered) packet received from a client.
+     *
+     * @param bytes size in bytes
+     * @see #recordRawBytesFromBackend(long) for design rationale
+     */
+    public void recordRawBytesFromClient(long bytes) {
+        packetsFromClient.increment();
+        bytesFromClient.increment(bytes);
+        rawPacketsFromClient.increment();
+        rawBytesFromClient.add(bytes);
+    }
+
+    /**
+     * Records a raw (unregistered) packet sent to a client.
+     *
+     * @param bytes size in bytes
+     * @see #recordRawBytesFromBackend(long) for design rationale
+     */
+    public void recordRawBytesToClient(long bytes) {
+        packetsToClient.increment();
+        bytesToClient.increment(bytes);
+        rawPacketsToClient.increment();
+        rawBytesToClient.add(bytes);
+    }
+
+    /**
+     * Records a raw (unregistered) packet sent to a backend server.
+     *
+     * @param bytes size in bytes
+     * @see #recordRawBytesFromBackend(long) for design rationale
+     */
+    public void recordRawBytesToBackend(long bytes) {
+        packetsToBackend.increment();
+        bytesToBackend.increment(bytes);
+        rawPacketsToBackend.increment();
+        rawBytesToBackend.add(bytes);
+    }
+
+    /**
+     * Gets the total number of raw packets received from backends.
+     */
+    public long getRawPacketsFromBackend() {
+        return rawPacketsFromBackend.sum();
+    }
+
+    /**
+     * Gets the total number of raw packets received from clients.
+     */
+    public long getRawPacketsFromClient() {
+        return rawPacketsFromClient.sum();
+    }
+
+    /**
+     * Gets the total raw bytes received from backends.
+     */
+    public long getRawBytesFromBackend() {
+        return rawBytesFromBackend.sum();
+    }
+
+    /**
+     * Gets the total raw bytes received from clients.
+     */
+    public long getRawBytesFromClient() {
+        return rawBytesFromClient.sum();
+    }
+
 
     // ==================== Error Metrics ====================
 
@@ -689,10 +787,11 @@ public final class ProxyMetrics {
 
         if (elapsedSec <= 0) return;
 
-        long currentPacketsIn = (long) packetsFromClient.count();
-        long currentPacketsOut = (long) packetsToClient.count();
-        long currentBytesIn = (long) bytesFromClient.count();
-        long currentBytesOut = (long) bytesToClient.count();
+        // Include both client and backend traffic for accurate throughput
+        long currentPacketsIn = (long) packetsFromClient.count() + (long) packetsFromBackend.count();
+        long currentPacketsOut = (long) packetsToClient.count() + (long) packetsToBackend.count();
+        long currentBytesIn = (long) bytesFromClient.count() + (long) bytesFromBackend.count();
+        long currentBytesOut = (long) bytesToClient.count() + (long) bytesToBackend.count();
 
         packetsPerSecIn = (currentPacketsIn - lastPacketsFromClient.getAndSet(currentPacketsIn)) / elapsedSec;
         packetsPerSecOut = (currentPacketsOut - lastPacketsToClient.getAndSet(currentPacketsOut)) / elapsedSec;
