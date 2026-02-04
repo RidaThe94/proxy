@@ -70,6 +70,7 @@ public final class ClientPacketHandler extends SimpleChannelInboundHandler<Objec
         ProxyMetrics.getInstance().recordPacketFromClient(packet.getClass().getSimpleName(), 0);
         dispatchPacket(packet);
     }
+    
 @Override
     public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
         // Submit all buffered raw packets as a single cross-event-loop task.
@@ -150,7 +151,14 @@ public final class ClientPacketHandler extends SimpleChannelInboundHandler<Objec
         cleanupSession();
         super.channelInactive(ctx);
     }
-
+    
+    private void releasePendingBuffers() {
+        for (ByteBuf buf : pendingRawToBackend) {
+            ReferenceCountUtil.safeRelease(buf);
+        }
+        pendingRawToBackend.clear();
+    }
+    
     private void cleanupSession() {
         session.close();
         proxyCore.getSessionManager().removeSession(session);
