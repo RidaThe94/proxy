@@ -63,5 +63,19 @@ public final class TransferResult {
     public static TransferResult failure(@Nonnull String reason) {
         return new TransferResult(false, reason);
     }
+    public enum Status {
+        SUCCESS,
+        ALREADY_TRANSFERRING,
+        CONNECTION_FAILED,
+        INTERNAL_ERROR
+    }
+    public static TransferResult failed(Status status) {
+        return new TransferResult(status); // Adjust constructor to match your class
+    }
+
+    public TransferResult(Status status) {
+        // This calls: private TransferResult(boolean success, String message)
+        this(status == Status.SUCCESS, status.name());
+    }
 }
 

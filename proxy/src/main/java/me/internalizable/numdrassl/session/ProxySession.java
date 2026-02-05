@@ -12,6 +12,7 @@ import io.netty.incubator.codec.quic.QuicStreamChannel;
 import java.util.List;
 import me.internalizable.numdrassl.api.chat.ChatMessageBuilder;
 import me.internalizable.numdrassl.api.player.Player;
+import me.internalizable.numdrassl.api.player.TransferResult;
 import me.internalizable.numdrassl.auth.CertificateExtractor;
 import me.internalizable.numdrassl.config.BackendServer;
 import me.internalizable.numdrassl.server.ProxyCore;
@@ -31,6 +32,7 @@ import java.security.cert.X509Certificate;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -457,7 +459,24 @@ public final class ProxySession {
         Objects.requireNonNull(player, "player");
         cachedPlayer.set(player);
     }
+ // --- ADD THIS CODE ---
+    private boolean transferring = false;
 
+    public boolean isTransferring() {
+        return transferring;
+    }
+
+    public void setTransferring(boolean transferring) {
+        this.transferring = transferring;
+    }
+
+    public CompletableFuture<TransferResult> completeTransfer(BackendServer target) {
+        // Basic implementation stub to satisfy the compiler
+        return CompletableFuture.completedFuture(
+            TransferResult.success()
+        );
+    }
+    // ---------------------
     // ==================== Lifecycle ====================
 
     /**

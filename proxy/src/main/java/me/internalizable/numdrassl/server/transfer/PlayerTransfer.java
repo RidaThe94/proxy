@@ -2,9 +2,13 @@ package me.internalizable.numdrassl.server.transfer;
 
 import com.hypixel.hytale.protocol.HostAddress;
 import com.hypixel.hytale.protocol.packets.auth.ClientReferral;
+import me.internalizable.numdrassl.api.chat.ChatMessageBuilder;
 import me.internalizable.numdrassl.api.player.TransferResult;
 import me.internalizable.numdrassl.config.BackendServer;
+import me.internalizable.numdrassl.plugin.bridge.PlayerTransferBridgeResult;
 import me.internalizable.numdrassl.server.ProxyCore;
+import me.internalizable.numdrassl.server.health.BackendHealth;
+import me.internalizable.numdrassl.server.health.BackendHealthManager;
 import me.internalizable.numdrassl.session.ProxySession;
 import me.internalizable.numdrassl.session.SessionState;
 import org.slf4j.Logger;
@@ -20,13 +24,12 @@ import java.util.concurrent.CompletableFuture;
  *
  * <p>Uses {@link ClientReferral} packets to instruct the client to disconnect
  * and reconnect to the proxy. When they reconnect with referral data,
- * the {@link ReferralManager} routes them to the target backend.</p>
+ * the ReferralManager routes them to the target backend.</p>
  */
 public final class PlayerTransfer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(PlayerTransfer.class);
     private static final int MAX_PORT = 32767;
-
     private final ProxyCore proxyCore;
 
     public PlayerTransfer(@Nonnull ProxyCore proxyCore) {
@@ -37,53 +40,107 @@ public final class PlayerTransfer {
 
     /**
      * Transfers a player to a different backend server.
-     *
-     * @param session       the player's session
-     * @param targetBackend the target backend server
-     * @return a future completing with the transfer result
      */
     @Nonnull
-    public CompletableFuture<TransferResult> transfer(@Nonnull ProxySession session, @Nonnull BackendServer targetBackend) {
+    public CompletableFuture<TransferResult> transfer(
+            @Nonnull ProxySession session,
+            @Nonnull BackendServer targetBackend) {
 
-        Objects.requireNonNull(session, "session");
-        Objects.requireNonNull(targetBackend, "targetBackend");
-
-        if (proxyCore.getBackendHealthManager() == null) {
-            return CompletableFuture.completedFuture(TransferResult.failure("Internal error: backend health manager not initialized"));
+        // 1. Safety Check
+        if (session.isTransferring()) {
+            return CompletableFuture.completedFuture(TransferResult.failed(TransferResult.Status.ALREADY_TRANSFERRING));
         }
 
-        return proxyCore.getBackendHealthManager().sendPingAsync(targetBackend, 1500).thenApply(ok -> {
-            if (!ok) {
-                LOGGER.warn("Backend ({}) did not respond in time", targetBackend.getName());
-                return TransferResult.failure("Server is offline!");
-            }
+        // 2. Set State
+        session.setTransferring(true);
 
-            return executeTransfer(session, targetBackend);
-        });
+        // 3. Connect to backend
+        return targetBackend.connect(session)
+                .thenCompose(connectionResult -> {
+                    if (!connectionResult.isSuccess()) {
+                        session.setTransferring(false);
+                        return CompletableFuture.completedFuture(
+                                TransferResult.failed(TransferResult.Status.CONNECTION_FAILED)
+                        );
+                    }
+
+                    // 4. Complete Transfer
+                    return session.completeTransfer(targetBackend)
+                            .thenApply(v -> {
+                                session.setTransferring(false);
+                                return TransferResult.success();
+                            });
+                })
+                .exceptionally(throwable -> {
+                    session.setTransferring(false);
+                    return TransferResult.failed(TransferResult.Status.INTERNAL_ERROR);
+                });
     }
 
     /**
      * Transfers a player to a backend server by name.
-     *
-     * @param session     the player's session
-     * @param backendName the name of the target backend
-     * @return a future completing with the transfer result
      */
     @Nonnull
     public CompletableFuture<TransferResult> transfer(@Nonnull ProxySession session, @Nonnull String backendName) {
-
         Objects.requireNonNull(session, "session");
         Objects.requireNonNull(backendName, "backendName");
 
         BackendServer backend = proxyCore.getConfig().getBackendByName(backendName);
         if (backend == null) {
+            LOGGER.warn("Session {}: Backend {} not found in configuration", session.getSessionId(), backendName);
             return CompletableFuture.completedFuture(TransferResult.failure("Unknown backend server: " + backendName));
         }
 
         return transfer(session, backend);
     }
 
-    // ==================== Internal ====================
+    private PlayerTransferBridgeResult firePlayerTransferEvent(ProxySession session, BackendServer targetBackend) {
+        var apiProxy = proxyCore.getApiProxy();
+        if (apiProxy == null) {
+            return PlayerTransferBridgeResult.allow(targetBackend);
+        }
+        return apiProxy.getEventBridge().firePlayerTransferEvent(session, targetBackend);
+    }
+
+    // ==================== Transfer Execution (Client Referral Logic) ====================
+
+    /**
+     * NOTE: This method is currently unused by the main transfer() method above.
+     * If you intend to use ClientReferral (disconnect/reconnect) instead of Proxy-Bridge,
+     * you should call this method inside transfer() instead of targetBackend.connect().
+     */
+    private CompletableFuture<TransferResult> checkBackendAndTransfer(
+            ProxySession session,
+            BackendServer targetBackend) {
+
+        BackendHealthManager cache = proxyCore.getBackendHealthManager();
+        if (cache == null) {
+            return CompletableFuture.completedFuture(
+                    TransferResult.failure("Internal error: backend health cache not initialized")
+            );
+        }
+
+        // 1. Get the health object (Synchronous)
+        BackendHealth health = cache.get(targetBackend);
+
+        // 2. Check the status
+        boolean isServerAlive = (health != null && health.isAlive());
+
+        // 3. Chain the logic
+        return CompletableFuture.completedFuture(isServerAlive)
+                .thenApply(alive -> {
+                    if (!alive) {
+                        LOGGER.warn("Session {}: Backend {} is offline", session.getSessionId(), targetBackend.getName());
+                        return TransferResult.failure("Server is offline");
+                    }
+                    return executeTransfer(session, targetBackend);
+                })
+                .exceptionally(ex -> {
+                    LOGGER.warn("Session {}: Backend {} is not reachable: {}",
+                            session.getSessionId(), targetBackend.getName(), ex.getMessage());
+                    return TransferResult.failure("Server is offline");
+                });
+    }
 
     private TransferResult executeTransfer(ProxySession session, BackendServer targetBackend) {
         // Validate session state
@@ -106,6 +163,8 @@ public final class PlayerTransfer {
         return TransferResult.success("Transfer initiated");
     }
 
+    // ==================== Validation ====================
+
     private Optional<TransferResult> validateTransfer(ProxySession session, BackendServer targetBackend) {
         if (session.getState() != SessionState.CONNECTED && session.getState() != SessionState.TRANSFERRING) {
             return Optional.of(TransferResult.failure("Player not connected"));
@@ -122,6 +181,8 @@ public final class PlayerTransfer {
 
         return Optional.empty();
     }
+
+    // ==================== Address Resolution ====================
 
     private HostAddress resolveProxyAddress(ProxySession session) {
         String host = resolveProxyHost();
@@ -159,12 +220,15 @@ public final class PlayerTransfer {
         return publicPort > 0 ? publicPort : proxyCore.getConfig().getBindPort();
     }
 
+    // ==================== Referral Handling ====================
+
     private void logTransferStart(ProxySession session, BackendServer targetBackend) {
         BackendServer current = session.getCurrentBackend();
         LOGGER.info("Session {}: Initiating transfer for {} from {} to {}", session.getSessionId(), session.getPlayerName(), current != null ? current.getName() : "unknown", targetBackend.getName());
     }
 
     private byte[] createReferralData(ProxySession session, BackendServer targetBackend) {
+        // Ensure ProxyCore has this getter!
         return proxyCore.getReferralManager().createReferral(session.getPlayerUuid(), targetBackend);
     }
 
@@ -176,4 +240,3 @@ public final class PlayerTransfer {
         session.sendToClient(referral);
     }
 }
-

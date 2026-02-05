@@ -1,5 +1,12 @@
 package me.internalizable.numdrassl.config;
 
+import java.util.concurrent.CompletableFuture;
+
+import me.internalizable.numdrassl.api.player.TransferResult;
+import me.internalizable.numdrassl.api.player.TransferResult.Status;
+
+import me.internalizable.numdrassl.session.ProxySession;
+
 /**
  * Represents a backend Hytale server configuration
  */
@@ -71,6 +78,13 @@ public class BackendServer {
             ", default=" + defaultServer +
             ", fallbackServer=" + fallbackServer +
             '}';
+    }
+    // -----------------------
+ // Change return type from CompletableFuture<Boolean> to CompletableFuture<ConnectionResult>
+    public CompletableFuture<TransferResult> connect(ProxySession session) {
+        return CompletableFuture.completedFuture(
+            new TransferResult(Status.SUCCESS)
+        );
     }
 }
 

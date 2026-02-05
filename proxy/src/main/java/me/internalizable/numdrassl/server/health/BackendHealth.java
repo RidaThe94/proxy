@@ -96,6 +96,13 @@ public class BackendHealth {
     public enum BackendState {
         HEALTHY, DEAD;
     }
+
+	public boolean isAlive() {
+		if (getState() == BackendState.HEALTHY) {
+		return true;
+		}
+		return false;
+	}
 }
 
 

@@ -1,0 +1,16 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\proxy",
+    "\\proxy\\src",
+    "\\proxy\\src\\main",
+    "\\proxy\\src\\main\\java",
+    "\\proxy\\src\\main\\java\\me",
+    "\\proxy\\src\\main\\java\\me\\internalizable",
+    "\\proxy\\src\\main\\java\\me\\internalizable\\numdrassl",
+    "\\proxy\\src\\main\\java\\me\\internalizable\\numdrassl\\event",
+    "\\proxy\\src\\main\\java\\me\\internalizable\\numdrassl\\event\\api"
+  ],
+  "SelectedNode": "\\proxy\\src\\main\\java\\me\\internalizable\\numdrassl\\event\\api\\package-info.java",
+  "PreviewInSolutionExplorer": false
+}

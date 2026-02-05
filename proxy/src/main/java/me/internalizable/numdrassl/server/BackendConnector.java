@@ -147,7 +147,40 @@ public final class BackendConnector {
             LOGGER.warn("Could not compute certificate fingerprint", e);
         }
     }
+    public boolean checkBackendAlive(BackendServer server, int timeout) {
+        Channel datagramChannel = null;
+        try {
+            Bootstrap bootstrap = createBootstrap();
+            InetSocketAddress address = new InetSocketAddress(server.getHost(), server.getPort());
 
+            // Bind to a random local port to start the handshake
+            datagramChannel = bootstrap.bind(0).sync().channel();
+
+            // Attempt to connect via QUIC
+            io.netty.util.concurrent.Future<QuicChannel> future = QuicChannel.newBootstrap(datagramChannel)
+                    .remoteAddress(address)
+                    .streamHandler(new ChannelInitializer<QuicStreamChannel>() {
+                        @Override
+                        protected void initChannel(QuicStreamChannel ch) {
+                            // No logic needed for a ping, just establishing the connection is enough
+                        }
+                    })
+                    .connect();
+
+            // Block until success or timeout
+            if (future.await(timeout, TimeUnit.MILLISECONDS) && future.isSuccess()) {
+                future.getNow().close(); // Connection worked! Close it immediately.
+                return true;
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Ping failed for {}: {}", server.getName(), e.getMessage());
+        } finally {
+            if (datagramChannel != null) {
+                datagramChannel.close();
+            }
+        }
+        return false;
+    }
     // ==================== Connection ====================
 
     /**

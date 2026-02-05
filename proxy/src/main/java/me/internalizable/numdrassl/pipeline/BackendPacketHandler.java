@@ -1,6 +1,7 @@
 package me.internalizable.numdrassl.pipeline;
 
 import com.hypixel.hytale.protocol.Packet;
+import com.hypixel.hytale.protocol.packets.auth.ClientReferral;
 import com.hypixel.hytale.protocol.packets.auth.ConnectAccept;
 import com.hypixel.hytale.protocol.packets.connection.Disconnect;
 import io.netty.buffer.ByteBuf;
@@ -15,9 +16,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Handles packets from the upstream backend server.
@@ -29,6 +33,15 @@ import java.util.Objects;
 public final class BackendPacketHandler extends SimpleChannelInboundHandler<Object> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(BackendPacketHandler.class);
+
+    /**
+     * Magic marker identifying backend-initiated transfers via ClientReferral.
+     * When a backend sends this marker in the referral data, the proxy intercepts
+     * and handles the transfer instead of forwarding to the client.
+     * Pre-computed as byte[] to avoid String allocation per packet.
+     */
+    private static final byte[] BACKEND_TRANSFER_MARKER = "Numdrassl".getBytes(StandardCharsets.UTF_8);
+
 
     private final ProxyCore proxyCore;
     private final ProxySession session;
@@ -105,6 +118,8 @@ public final class BackendPacketHandler extends SimpleChannelInboundHandler<Obje
             handleConnectAccept(accept);
         } else if (packet instanceof Disconnect disconnect) {
             handleDisconnect(disconnect);
+        } else if (packet instanceof ClientReferral referral) {
+            handleClientReferral(referral);
         } else {
             forwardToClient(packet);
         }
@@ -161,6 +176,45 @@ public final class BackendPacketHandler extends SimpleChannelInboundHandler<Obje
 
         forwardToClient(disconnect);
         session.disconnect("Backend disconnected: " + disconnect.reason);
+    }
+    private void handleClientReferral(ClientReferral referral) {
+        if (isBackendInitiatedTransfer(referral.data)) {
+            handleBackendInitiatedTransfer(referral);
+            return;
+        }
+
+        // External referral - forward to client (original behavior)
+        LOGGER.debug("Session {}: Forwarding external ClientReferral to client", session.getSessionId());
+        forwardToClient(referral);
+    }
+
+    private boolean isBackendInitiatedTransfer(byte[] data) {
+        return data != null && Arrays.equals(data, BACKEND_TRANSFER_MARKER);
+    }
+
+    private void handleBackendInitiatedTransfer(ClientReferral referral) {
+        if (referral.hostTo == null) {
+            LOGGER.warn("Session {}: Invalid ClientReferral missing destination", session.getSessionId());
+            return;
+        }
+
+        // Early validation — avoid unnecessary work if session is not in a transferable state
+        if (session.isServerTransfer() || session.getState() != SessionState.CONNECTED) {
+            LOGGER.debug("Session {}: Ignoring backend transfer request (state={}, serverTransfer={})",
+                    session.getSessionId(), session.getState(), session.isServerTransfer());
+            return;
+        }
+
+        String targetServerName = referral.hostTo.host;
+
+        LOGGER.info("Session {}: Backend {} requested transfer to {}",
+                session.getSessionId(), Objects.requireNonNull(session.getCurrentBackend()).getName(), targetServerName);
+
+        // Dispatch off the Netty event loop to avoid blocking I/O for other sessions.
+        // PlayerTransfer.transfer() fires PlayerTransferEvent synchronously — with mass transfers
+        // (e.g. 2000 referToServer() in a loop), this would block the event loop thread for all
+        // synchronous event handler executions if run inline.
+        CompletableFuture.runAsync(() -> proxyCore.getPlayerTransfer().transfer(session, targetServerName));
     }
 
     private boolean isTransferring() {
